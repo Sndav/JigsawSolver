@@ -1,5 +1,9 @@
 from PIL import Image
 import math
+import threading
+from core.logger import logger
+import core.vars as vars
+import queue
 
 def HSVDistance(hsv_1,hsv_2):   # Calculate color distance
     H_1,S_1,V_1 = hsv_1
@@ -21,7 +25,7 @@ def HSVDistance(hsv_1,hsv_2):   # Calculate color distance
 
 def compare(img1,img2):
     left, right, top, bottom = [],[],[],[]
-    imgs = [img1.convert('HSV'),img2.convert('HSV')] # Convert to HSV mode
+    imgs = [img1,img2] # Convert to HSV mode
     for im in imgs:
         width = im.size[0]  
         height = im.size[1]
@@ -48,3 +52,30 @@ def compare(img1,img2):
     weight /= min(len(top[0]),len(bottom[1]))+0.0
     result.append(weight)
     return result
+
+class CompareWorker(threading.Thread):
+    def __init__(self, queue, *args, **kwargs):
+        self.queue = queue
+        threading.Thread.__init__(self)
+    def run(self):
+        file_count = vars.get("file_count")
+        im_list = vars.get("im_list_hsv")
+        files = vars.get("files")
+        while True:
+            try:
+                work = self.queue.get(timeout=3)  # 3s timeout
+            except queue.Empty:
+                return
+            i = work[0]
+            j = work[1]
+            res = compare(im_list[i],im_list[j])
+            GR = vars.get("GR")
+            GB = vars.get("GB")
+            GR[i][j] = res[0]
+            GB[i][j] = res[1]
+            vars.set("GR",GR)
+            vars.set("GB",GB)
+            process_cur = vars.get("process_cur")
+            vars.set("process_cur",process_cur+1)
+            logger.status("complete: %.2f%% ,working on %s & %s \r" % (100*process_cur/(file_count**2+0.0),files[i],files[j]))
+            self.queue.task_done()
